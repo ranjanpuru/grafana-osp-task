@@ -1,97 +1,64 @@
 # grafana-osp-task
 
-AWS Managed Grafana + CloudWatch observability, wired end-to-end via
-CloudFormation, CFN custom resources, and GitHub Actions.
+AMG + CloudWatch + SNS wired up end-to-end via CloudFormation and GitHub Actions.
 
-## What this does
+## What's in here
 
-1. **AWS Managed Grafana workspace** provisioned in CloudFormation with
-   - `AWS_SSO` auth (IAM Identity Center, org-level)
-   - CloudWatch as a managed data source
-   - SNS as a notification destination
-   - `PluginAdminEnabled: true` so plugins can be installed over the API
-2. **CFN custom resource (Lambda)** that on every stack create/update:
-   - waits for the workspace to reach ACTIVE
-   - mints a short-lived ADMIN service-account token via the `grafana` API
-   - installs the plugins listed in `PluginsToInstall` over the Grafana HTTP API
-   - optionally assigns an IAM Identity Center group as workspace ADMIN
-     (with retries while AMG finishes registering its managed application)
-   - tears the service account down before returning
-3. **CloudWatch observability**: a Lambda emits `osp/Demo` custom metrics on
-   a 1-min schedule (latency/requests/errors per service), plus a CloudWatch
-   dashboard reading those metrics.
-4. **Grafana content as code** under `grafana/`
-   - dashboard JSON
-   - alert rules, SNS contact point, notification policy, notification templates
-5. **GitHub Actions**
-   - `deploy-infra.yml`  - CloudFormation for both stacks + Lambda packaging/upload
-   - `sync-grafana.yml`  - pushes `grafana/**` into the workspace via HTTP API
+- **`cloudformation/`** - two stacks:
+  - `observability.yaml` - SNS topic, a scheduled demo-workload Lambda that
+    emits `osp/Demo` metrics every minute, and a CloudWatch dashboard over
+    those metrics.
+  - `grafana-workspace.yaml` - the AMG workspace (AWS_SSO auth, CloudWatch
+    datasource, SNS notification destination, `PluginAdminEnabled`), plus a
+    `Custom::GrafanaBootstrap` resource.
+- **`lambda/grafana_custom_resource/`** - the handler behind that custom
+  resource. On Create/Update it mints a short-lived admin service account on
+  the workspace, installs the configured plugins via the Grafana HTTP API,
+  assigns the IdC group as ADMIN, and deletes the SA before returning.
+- **`grafana/`** - dashboard JSON, alert rules, SNS contact point,
+  notification policy and templates. This is what gets pushed to the
+  workspace by the sync workflow.
+- **`.github/workflows/`** - two workflows:
+  - `deploy-infra.yml` fires on `cloudformation/**` or `lambda/**` changes,
+    packages the Lambda zip, uploads to S3, deploys both stacks.
+  - `sync-grafana.yml` fires on `grafana/**` changes and runs
+    `scripts/sync_grafana.py` against the workspace.
 
 ```
-             +------------------+        +-------------------+
- users +---->|  IAM Identity    |------->|  AWS Managed       |
-             |  Center (SSO)    |        |  Grafana           |
-             +------------------+        |  + plugins (CR)    |
-                                         +---------+----------+
-                                                   |
-                                                   | CloudWatch DS
-                                                   v
-                       +-----------------+    +----+------+
-                       |  osp-workload   |--> |CloudWatch |
-                       |  Lambda (metrics)|    +-----+-----+
-                       +-----------------+          |
-                                                    | Grafana alert eval
-                                                    v
-                                              +-----+-----+
-                                              |   SNS     |---> email / Slack / Lambda
-                                              +-----------+
+  users ──SSO──▶ AMG workspace ──CW DS──▶ CloudWatch ◀── osp-workload
+                     │                        ▲
+                     │ alert eval             │ metrics
+                     ▼                        │ (1 min schedule)
+                    SNS ──▶ email / etc.
 ```
 
-## Prerequisites
+## Config model
 
-- An AWS account you own. Not a shared account - the stacks create a
-  workspace + 1-min scheduled Lambda.
-- IAM Identity Center at org level (AWS Organizations required). Create a
-  group you want to grant workspace ADMIN - the group ID goes in
-  `ADMIN_GROUP_ID` below.
-- AWS CLI + creds for that account.
-- An S3 bucket for the Lambda zip (`make bucket` creates one).
-- Python 3.12 locally if you want to run `sync_grafana.py` or `make sync`.
+Only non-sensitive defaults are committed (`cloudformation/parameters/dev.json`:
+namespace, workspace name, Grafana version, plugin list).
 
-## Configuration model
+Account-specific stuff lives in GitHub Actions variables/secrets so the repo
+stays clone-and-go for anyone else:
 
-The repo only commits **non-sensitive defaults**. Account-specific values
-(your IdC group id, your alert email) are not in git - they live in GitHub
-Actions variables/secrets and are injected at deploy time.
+| where | key | what |
+|---|---|---|
+| `vars` | `AWS_REGION` | deploy region |
+| `vars` | `ARTIFACTS_BUCKET` | S3 for the Lambda zip |
+| `vars` | `ALERTS_EMAIL` | subscribed to the SNS topic |
+| `vars` | `ADMIN_GROUP_ID` | IdC group to make workspace ADMIN |
+| `secrets` | `AWS_DEPLOY_ROLE_ARN` | role the workflows assume via OIDC |
 
-In `cloudformation/parameters/dev.json`:
-- `observability.Namespace`
-- `grafana.WorkspaceName`, `grafana.GrafanaVersion`, `grafana.PluginsToInstall`
+## Deploy via GitHub Actions
 
-In GitHub repo variables (public to actions, not to clone-ers):
-- `AWS_REGION`
-- `ARTIFACTS_BUCKET`    - S3 bucket for the Lambda zip
-- `ALERTS_EMAIL`        - subscribed to the SNS topic
-- `ADMIN_GROUP_ID`      - IdC group assigned workspace ADMIN
+1. Create an IAM OIDC provider for `token.actions.githubusercontent.com`.
+2. Create a role trusting the repo (`repo:<owner>/<name>:ref:refs/heads/main`)
+   and attach the policies you want. For a sandbox: `PowerUserAccess` +
+   `IAMFullAccess`.
+3. Set the vars + secret above.
+4. Push to `main`.
 
-In GitHub repo secrets:
-- `AWS_DEPLOY_ROLE_ARN` - IAM role the workflow assumes via OIDC
-
-## Deploy from GitHub Actions
-
-1. Fork or clone this repo.
-2. Create an IAM OIDC provider for `token.actions.githubusercontent.com`
-   in your account.
-3. Create a role trusting your repo with a subject condition like
-   `repo:<owner>/<name>:ref:refs/heads/main`. Attach `PowerUserAccess` and
-   `IAMFullAccess` for this sandbox; tighten for production.
-4. Set the repo variables/secrets listed above.
-5. Push to `main`. The two workflows trigger on:
-   - `cloudformation/**` or `lambda/**`  -> `deploy-infra`
-   - `grafana/**` or `scripts/sync_grafana.py`  -> `sync-grafana`
-
-First full deploy is ~10 min (AMG workspace provisioning dominates).
-Subsequent `sync-grafana` runs are ~30 sec.
+First full deploy is ~10 min; AMG workspace provisioning dominates.
+Subsequent `sync-grafana` runs finish in ~30 s.
 
 ## Deploy locally
 
@@ -102,60 +69,38 @@ export ALERTS_EMAIL=me@example.com
 export ADMIN_GROUP_ID=<idc group uuid>
 
 make bucket
-make deploy    # packages lambda, deploys both stacks
-make sync      # pushes dashboards/alerts from ./grafana into the workspace
-make outputs
+make deploy   # packages lambda, deploys both stacks
+make sync     # pushes dashboards/alerts from grafana/
 ```
 
-## Adding a plugin
+## Sharp edges worth flagging
 
-Add the Grafana plugin ID to `grafana.PluginsToInstall` in `dev.json` and
-push. The custom resource re-runs on stack update. Already-installed
-plugins return 409 (idempotent); unknown plugin IDs return 404 and are
-logged-and-skipped so one typo does not roll back the stack.
+- **IdC managed-app race.** After the workspace goes ACTIVE, AMG takes a few
+  seconds to register a managed application in IAM Identity Center.
+  `grafana:UpdatePermissions` 403s with `Unable to update users in managed
+  application` until that finishes. Custom resource retries for ~2 min; if
+  it still can't assign, it logs and moves on rather than rolling back the
+  whole workspace. I'd rather re-run `UpdatePermissions` than lose a 6-min
+  provision.
+- **Plugins are unpinned.** Installs the latest for a given plugin id. AMG
+  keeps plugin versions in sync with the Grafana channel anyway; pass an
+  explicit `version` in the custom resource props if you need to pin.
+- **Deprecated plugin ids.** Some classic plugin ids like
+  `grafana-piechart-panel` were merged into core or retired. Install returns
+  404, which we tolerate - one typo shouldn't roll back a workspace.
+- **Alert rule prune.** Sync upserts by UID. If you rename a rule without
+  keeping the UID, the old one is orphaned - either reuse the UID or clean
+  up manually. Haven't bothered adding a prune pass yet.
+- **SNS on resolve.** Grafana fires once on alert and once on resolve. If
+  this gets wired to Slack later, put a filter lambda in between or the
+  channel will get noisy.
 
-## Adding a dashboard / alert rule
-
-Drop the JSON / YAML under `grafana/` and push. The sync workflow is
-idempotent: dashboards overwrite by UID, alert rules upsert by UID, contact
-points are PUT-in-place so a policy referencing them stays valid.
-
-## Grafana alert -> SNS
-
-The SNS contact point uses the workspace's IAM role via SigV4 - no static
-AWS creds in Grafana. The workspace role has `sns:Publish` scoped to the
-topic ARN from the observability stack.
-
-Subject and body are shared templates
-(`grafana/provisioning/alerting/templates.yaml`). All rules emit consistent
-bodies that downstream subscribers can parse.
-
-## Tearing down
+## Teardown
 
 ```bash
 AWS_PROFILE=my-sandbox ./scripts/nuke.sh
 ```
 
-Removes both CFN stacks, the Lambda log groups (CFN does not own them),
-the artifacts bucket, the IdC group + user + instance, and the AWS
-Organization. Safe to re-run.
-
-## Known sharp edges
-
-- **Plugin versions unpinned.** Custom resource installs the latest version
-  for a given plugin ID. Pin by passing `version` in the request properties
-  if needed - AMG ties plugin compatibility to the Grafana version, so
-  leaving unpinned tracks AMG's channel.
-- **Alert rule rename orphans.** If you rename an alert rule, either keep
-  the UID or bump it and clean up the old one manually - `sync_grafana.py`
-  does not prune rules it does not know about.
-- **SNS resolve messages.** Grafana sends one SNS message on fire and one
-  on resolve. If routing SNS -> Slack, use a transform lambda so Slack
-  only gets the interesting transitions.
-- **IdC SSO group assignment race.** After `AWS::Grafana::Workspace`
-  reports ACTIVE, AMG asynchronously registers its Identity Center managed
-  application. `grafana:UpdatePermissions` 403s with
-  `Unable to update users in managed application` until that registration
-  completes. The custom resource retries with backoff; the assignment is
-  fail-soft so a slow registration does not fail the stack (log warns,
-  you can re-run `UpdatePermissions` or assign in the console).
+Deletes both stacks, the Lambda log groups CFN doesn't own, the artifacts
+bucket, the IdC group + user + instance, and the AWS Organization if it's a
+single-account one. Safe to re-run.

@@ -134,9 +134,8 @@ Resources:
       Role: !GetAtt CustomResourceRole.Arn
       Timeout: 600
       MemorySize: 256
-      # Real code comes from S3 when the bucket/key params are supplied (the
-      # GH Actions / make flow does this). Falls back to an inline stub so
-      # `aws cloudformation validate-template` works standalone.
+      # Real zip comes from S3 when the params are set (CI does this).
+      # Inline stub is just so `validate-template` passes standalone.
       Code: !If
         - UseS3Code
         - S3Bucket: !Ref CustomResourceBucket

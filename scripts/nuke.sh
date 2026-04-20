@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Nuke every AWS resource this repo created. Safe to run repeatedly.
-# Usage: AWS_PROFILE=adventure ./scripts/nuke.sh
+# Teardown for the whole stack. Idempotent, re-runnable.
+# Usage: AWS_PROFILE=<your-sandbox> ./scripts/nuke.sh
 
 set -u
 
@@ -54,8 +54,7 @@ for k in ("Versions","DeleteMarkers"):
     aws s3api delete-bucket --bucket "$ARTIFACTS_BUCKET" --region "$AWS_REGION" || true
 fi
 
-# 5) IAM Identity Center group + user. Instance itself stays (free + the only
-# way to disable it is via the console anyway). Re-running is idempotent.
+# 5) IdC group + user.
 IDSTORE=$(aws sso-admin list-instances --region "$AWS_REGION" --query 'Instances[0].IdentityStoreId' --output text 2>/dev/null || echo "")
 if [[ -n "$IDSTORE" && "$IDSTORE" != "None" ]]; then
     GID=$(aws identitystore list-groups --identity-store-id "$IDSTORE" --region "$AWS_REGION" \
@@ -84,8 +83,7 @@ if [[ -n "$IDSTORE" && "$IDSTORE" != "None" ]]; then
     fi
 fi
 
-# 6) IAM Identity Center instance. Org-level instances can be deleted via the
-#    management account (requires all assignments + permission sets gone first).
+# 6) IdC instance itself. Org-level needs all assignments gone first, else skip.
 INSTANCE_ARN=$(aws sso-admin list-instances --region "$AWS_REGION" --query 'Instances[0].InstanceArn' --output text 2>/dev/null || echo "")
 if [[ -n "$INSTANCE_ARN" && "$INSTANCE_ARN" != "None" ]]; then
     echo ">> attempting to delete IdC instance $INSTANCE_ARN (will fail if assignments remain)"
@@ -93,8 +91,7 @@ if [[ -n "$INSTANCE_ARN" && "$INSTANCE_ARN" != "None" ]]; then
       echo "   skipped - clean up permission sets / account assignments from console first"
 fi
 
-# 7) AWS Organization. Only works if this is a single-account org (no member
-#    accounts). Harmless if there is no org.
+# 7) AWS Organization (single-account only). No-op if there is no org.
 if aws organizations describe-organization >/dev/null 2>&1; then
     echo ">> dissolving AWS Organization (single-account only)"
     aws organizations delete-organization 2>/dev/null || \

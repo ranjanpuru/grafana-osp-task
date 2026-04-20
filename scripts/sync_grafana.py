@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""
-Push grafana/** into the AMG workspace.
-
-Required env: AWS_REGION, GRAFANA_WORKSPACE_ID, SNS_TOPIC_ARN
-Optional env: GRAFANA_ENDPOINT, REPO_ROOT
-
-Runs from GitHub Actions on every push to main; also works locally via
-`make sync`.
-"""
+# Pushes grafana/** into the AMG workspace via provisioning API.
+# Runs from GH Actions on push to main; also works locally via `make sync`.
+#
+# env: AWS_REGION, GRAFANA_WORKSPACE_ID, SNS_TOPIC_ARN
+# opt: GRAFANA_ENDPOINT, REPO_ROOT
 
 import json
 import logging

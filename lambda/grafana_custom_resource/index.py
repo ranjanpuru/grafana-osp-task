@@ -1,21 +1,11 @@
-"""
-CFN custom resource for the AMG workspace.
-
-Runs on Create/Update:
-  1. waits for the workspace to reach ACTIVE
-  2. mints a short-lived ADMIN service-account token (grafana control plane)
-  3. installs the listed plugins via /api/plugins/{id}/install
-  4. optionally assigns an IAM Identity Center group as workspace ADMIN
-  5. deletes the service account before returning
-
-Delete is a no-op: the workspace itself is going away.
-
-Deps: boto3 + stdlib only. Keeps the zip tiny, no layers needed.
-"""
+# Custom::GrafanaBootstrap handler.
+# Waits for the workspace to go ACTIVE, mints a short-lived SA token, installs
+# plugins, optionally assigns an IdC group as ADMIN, drops the SA.
+# Delete is a no-op (workspace is being deleted anyway).
+# Only deps: boto3 + stdlib, so the zip stays small and we skip Lambda layers.
 
 import json
 import logging
-import os
 import time
 import urllib.request
 import urllib.error
