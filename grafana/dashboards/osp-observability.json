@@ -1,44 +1,30 @@
 {
   "uid": "osp-observability",
   "title": "OSP / Demo services (CloudWatch)",
-  "tags": ["osp", "cloudwatch", "demo"],
+  "tags": [
+    "osp",
+    "cloudwatch",
+    "demo"
+  ],
   "timezone": "",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "30s",
-  "time": { "from": "now-3h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "templating": {
     "list": [
-      {
-        "name": "service",
-        "type": "query",
-        "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
-        "query": {
-          "queryType": "dimensionValues",
-          "region": "$region",
-          "namespace": "osp/Demo",
-          "metricName": "RequestLatencyMs",
-          "dimensionKey": "Service",
-          "dimensionFilters": {}
-        },
-        "includeAll": true,
-        "multi": true,
-        "refresh": 2,
-        "sort": 1,
-        "current": { "text": "All", "value": "$__all" }
-      },
       {
         "name": "region",
         "type": "custom",
         "query": "us-east-1,us-west-2,eu-west-1",
-        "current": { "text": "us-east-1", "value": "us-east-1" },
+        "current": {
+          "text": "us-east-1",
+          "value": "us-east-1"
+        },
         "includeAll": false
-      },
-      {
-        "name": "datasource",
-        "type": "datasource",
-        "query": "cloudwatch",
-        "current": { "text": "CloudWatch", "value": "CloudWatch" }
       }
     ]
   },
@@ -47,36 +33,106 @@
       "id": 1,
       "type": "timeseries",
       "title": "p95 latency by service (ms)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch-default"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 300 },
-              { "color": "red", "value": 500 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
             ]
           }
-        },
-        "overrides": []
+        }
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
           "namespace": "osp/Demo",
           "metricName": "RequestLatencyMs",
-          "dimensions": { "Service": "$service" },
+          "dimensions": {
+            "Service": "checkout"
+          },
           "statistic": "p95",
           "region": "$region",
           "period": "60",
-          "label": "{{Service}}"
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "RequestLatencyMs",
+          "dimensions": {
+            "Service": "catalog"
+          },
+          "statistic": "p95",
+          "region": "$region",
+          "period": "60",
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "RequestLatencyMs",
+          "dimensions": {
+            "Service": "search"
+          },
+          "statistic": "p95",
+          "region": "$region",
+          "period": "60",
+          "metricQueryType": 0,
+          "metricEditorMode": 0
         }
       ]
     },
@@ -84,78 +140,274 @@
       "id": 2,
       "type": "timeseries",
       "title": "Error rate % (errors / requests)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch-default"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 5 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           }
         }
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
       },
       "targets": [
         {
-          "refId": "errors",
-          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "refId": "errC",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
           "namespace": "osp/Demo",
           "metricName": "ErrorCount",
-          "dimensions": { "Service": "$service" },
+          "dimensions": {
+            "Service": "checkout"
+          },
           "statistic": "Sum",
           "region": "$region",
           "period": "60",
-          "hide": true
+          "hide": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0
         },
         {
-          "refId": "requests",
-          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "refId": "reqC",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
           "namespace": "osp/Demo",
           "metricName": "RequestCount",
-          "dimensions": { "Service": "$service" },
+          "dimensions": {
+            "Service": "checkout"
+          },
           "statistic": "Sum",
           "region": "$region",
           "period": "60",
-          "hide": true
+          "hide": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0
         },
         {
-          "refId": "rate",
-          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
-          "expression": "100 * errors / requests",
+          "refId": "rateC",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "type": "math",
+          "expression": "100 * $errC / $reqC",
+          "label": "checkout"
+        },
+        {
+          "refId": "errCat",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "ErrorCount",
+          "dimensions": {
+            "Service": "catalog"
+          },
+          "statistic": "Sum",
           "region": "$region",
-          "label": "{{Service}}"
+          "period": "60",
+          "hide": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "reqCat",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": {
+            "Service": "catalog"
+          },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "hide": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "rateCat",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "type": "math",
+          "expression": "100 * $errCat / $reqCat",
+          "label": "catalog"
+        },
+        {
+          "refId": "errS",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "ErrorCount",
+          "dimensions": {
+            "Service": "search"
+          },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "hide": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "reqS",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": {
+            "Service": "search"
+          },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "hide": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "rateS",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "type": "math",
+          "expression": "100 * $errS / $reqS",
+          "label": "search"
         }
       ]
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Request volume (last 5m, all services)",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
-      "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
-      "fieldConfig": { "defaults": { "unit": "short" } },
+      "title": "Total requests (last 5m)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch-default"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
       "options": {
-        "reduceOptions": { "calcs": ["sum"] },
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
         "colorMode": "background",
         "graphMode": "area"
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
           "namespace": "osp/Demo",
           "metricName": "RequestCount",
-          "dimensions": { "Service": "$service" },
+          "dimensions": {
+            "Service": "checkout"
+          },
           "statistic": "Sum",
           "region": "$region",
-          "period": "60"
+          "period": "60",
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": {
+            "Service": "catalog"
+          },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": {
+            "Service": "search"
+          },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "metricQueryType": 0,
+          "metricEditorMode": 0
         }
       ]
     },
@@ -163,22 +415,78 @@
       "id": 4,
       "type": "timeseries",
       "title": "Request volume by service",
-      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 8 },
-      "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+      "gridPos": {
+        "h": 9,
+        "w": 18,
+        "x": 6,
+        "y": 9
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch-default"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "stacking": { "mode": "normal" } } }
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 30
+          }
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
           "namespace": "osp/Demo",
           "metricName": "RequestCount",
-          "dimensions": { "Service": "$service" },
+          "dimensions": {
+            "Service": "checkout"
+          },
           "statistic": "Sum",
           "region": "$region",
           "period": "60",
-          "label": "{{Service}}"
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": {
+            "Service": "catalog"
+          },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "metricQueryType": 0,
+          "metricEditorMode": 0
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch-default"
+          },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": {
+            "Service": "search"
+          },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "metricQueryType": 0,
+          "metricEditorMode": 0
         }
       ]
     }

@@ -2,6 +2,38 @@
 
 AMG + CloudWatch + SNS wired up end-to-end via CloudFormation and GitHub Actions.
 
+## Screenshots
+
+Grafana dashboard over CloudWatch metrics, auto-refreshing every 30s:
+
+![Grafana dashboard](docs/screenshots/01-grafana-dashboard.png)
+
+The three alert rules provisioned into the `OSP` folder by the sync workflow:
+
+![Alert rules](docs/screenshots/02-alert-rules.png)
+
+SNS contact point the notification policies route to (no static AWS creds -
+the workspace role signs SNS calls with SigV4):
+
+![Contact points](docs/screenshots/03-contact-points.png)
+
+One of the plugins the CFN custom resource installed at stack-create time:
+
+![Installed plugin](docs/screenshots/05-plugins-polystat.png)
+
+Both stacks deployed by `deploy-infra` - parameters fed from the committed
+`dev.json` + GitHub Actions variables:
+
+![CloudFormation stacks](docs/screenshots/07-cfn-stacks.png)
+
+CloudWatch-native dashboard reading the same `osp/Demo` metrics:
+
+![CloudWatch dashboard](docs/screenshots/08-cw-dashboard.png)
+
+GitHub Actions runs - OIDC auth into AWS, no static keys anywhere:
+
+![GitHub Actions](docs/screenshots/06-github-actions.png)
+
 ## What's in here
 
 - **`cloudformation/`** - two stacks:
