@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AMG workspace + SSO + plugin install via CFN custom resource.
+
+Parameters:
+  WorkspaceName:
+    Type: String
+    Default: osp-grafana
+    Description: Name for the Grafana workspace.
+
+  GrafanaVersion:
+    Type: String
+    Default: "10.4"
+    AllowedValues: ["9.4", "10.4"]
+    Description: Grafana major.minor version. Must be supported by AMG.
+
+  AdminGroupId:
+    Type: String
+    Default: ""
+    Description: >
+      IAM Identity Center Group ID to grant ADMIN on the workspace. Leave blank
+      to skip SSO assignment (you can assign later via console or another run).
+
+  PluginsToInstall:
+    Type: CommaDelimitedList
+    Default: "grafana-clock-panel,grafana-polystat-panel,marcusolsson-json-datasource"
+    Description: Grafana plugin IDs to install (handled by custom resource).
+
+  SnsTopicArn:
+    Type: String
+    Description: >
+      SNS topic ARN the workspace service role must be allowed to Publish to
+      (exported by the observability stack).
+
+Conditions:
+  AssignAdminGroup: !Not [!Equals [!Ref AdminGroupId, ""]]
+
+Resources:
+
+  # Workspace service role. Assumed by AMG for CW queries + SNS publish.
+  WorkspaceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${WorkspaceName}-workspace-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: grafana.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonGrafanaCloudWatchAccess
+      Policies:
+        - PolicyName: grafana-sns-publish
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref SnsTopicArn
+
+  # PluginAdminEnabled=true lets the custom resource hit /api/plugins/*/install.
+  GrafanaWorkspace:
+    Type: AWS::Grafana::Workspace
+    Properties:
+      Name: !Ref WorkspaceName
+      AccountAccessType: CURRENT_ACCOUNT
+      AuthenticationProviders:
+        - AWS_SSO
+      PermissionType: SERVICE_MANAGED
+      GrafanaVersion: !Ref GrafanaVersion
+      DataSources:
+        - CLOUDWATCH
+      NotificationDestinations:
+        - SNS
+      PluginAdminEnabled: true
+      RoleArn: !GetAtt WorkspaceRole.Arn
+
+  # Custom resource Lambda: installs plugins + assigns SSO group.
+  CustomResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${WorkspaceName}-cr-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: grafana-admin
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - grafana:CreateWorkspaceServiceAccount
+                  - grafana:CreateWorkspaceServiceAccountToken
+                  - grafana:DeleteWorkspaceServiceAccount
+                  - grafana:DeleteWorkspaceServiceAccountToken
+                  - grafana:UpdatePermissions
+                  - grafana:DescribeWorkspace
+                  - grafana:DescribeWorkspaceAuthentication
+                Resource: !Sub "arn:aws:grafana:${AWS::Region}:${AWS::AccountId}:/workspaces/${GrafanaWorkspace}"
+
+  CustomResourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${WorkspaceName}-custom-resource"
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt CustomResourceRole.Arn
+      Timeout: 600
+      MemorySize: 256
+      # Makefile / deploy-infra workflow patches this to S3Bucket/S3Key at
+      # deploy time. Keeping a stub inline so `aws cloudformation validate`
+      # works standalone.
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              raise RuntimeError("stub - deploy via make package or CI")
+
+  # Runs on every stack update (Plugins/AdminGroupId change triggers replace).
+  GrafanaBootstrap:
+    Type: Custom::GrafanaBootstrap
+    DependsOn: GrafanaWorkspace
+    Properties:
+      ServiceToken: !GetAtt CustomResourceFunction.Arn
+      WorkspaceId: !Ref GrafanaWorkspace
+      WorkspaceEndpoint: !GetAtt GrafanaWorkspace.Endpoint
+      Region: !Ref AWS::Region
+      Plugins: !Ref PluginsToInstall
+      AdminGroupId: !Ref AdminGroupId
+      AssignAdmin: !If [AssignAdminGroup, "true", "false"]
+
+Outputs:
+  WorkspaceId:
+    Value: !Ref GrafanaWorkspace
+    Export:
+      Name: !Sub "${AWS::StackName}-WorkspaceId"
+
+  WorkspaceEndpoint:
+    Value: !GetAtt GrafanaWorkspace.Endpoint
+    Export:
+      Name: !Sub "${AWS::StackName}-WorkspaceEndpoint"
+
+  WorkspaceUrl:
+    Value: !Sub "https://${GrafanaWorkspace.Endpoint}"
+
+  WorkspaceRoleArn:
+    Value: !GetAtt WorkspaceRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-WorkspaceRoleArn"
+
+  CustomResourceFunctionName:
+    Value: !Ref CustomResourceFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-CustomResourceFunctionName"

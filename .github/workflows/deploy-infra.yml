@@ -1,0 +1,154 @@
+name: deploy-infra
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudformation/**"
+      - "lambda/**"
+      - ".github/workflows/deploy-infra.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ARTIFACTS_BUCKET: ${{ vars.ARTIFACTS_BUCKET }}
+  ENV: dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure AWS creds (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Read params
+        id: params
+        run: |
+          set -euo pipefail
+          jq -c . cloudformation/parameters/${ENV}.json > params.json
+          cat params.json
+          {
+            echo "namespace=$(jq -r .observability.Namespace params.json)"
+            echo "alerts_email=$(jq -r .observability.AlertsEmail params.json)"
+            echo "workspace_name=$(jq -r .grafana.WorkspaceName params.json)"
+            echo "grafana_version=$(jq -r .grafana.GrafanaVersion params.json)"
+            echo "admin_group_id=$(jq -r .grafana.AdminGroupId params.json)"
+            echo "plugins=$(jq -r .grafana.PluginsToInstall params.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # 1) Observability stack: SNS + CW dashboard + sample workload.
+      # ------------------------------------------------------------------
+      - name: Deploy observability stack
+        run: |
+          aws cloudformation deploy \
+            --stack-name osp-observability \
+            --template-file cloudformation/observability.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              Namespace=${{ steps.params.outputs.namespace }} \
+              AlertsEmail=${{ steps.params.outputs.alerts_email }}
+
+      - name: Capture SNS topic ARN
+        id: obs
+        run: |
+          arn=$(aws cloudformation describe-stacks --stack-name osp-observability \
+            --query "Stacks[0].Outputs[?OutputKey=='SnsTopicArn'].OutputValue" --output text)
+          echo "sns_topic_arn=$arn" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # 2) Package the custom resource lambda (swap the stub out).
+      # ------------------------------------------------------------------
+      - name: Package lambda
+        run: |
+          mkdir -p build
+          cp lambda/grafana_custom_resource/index.py build/
+          (cd build && zip -9 -q grafana_custom_resource.zip index.py)
+          aws s3 cp build/grafana_custom_resource.zip \
+            s3://${ARTIFACTS_BUCKET}/grafana-osp/$GITHUB_SHA/grafana_custom_resource.zip
+
+      # ------------------------------------------------------------------
+      # 3) Grafana workspace + plugin install via custom resource.
+      # We patch the CFN template at deploy time to point at the packaged zip.
+      # ------------------------------------------------------------------
+      - name: Prep workspace template
+        run: |
+          python - <<'PY'
+          import pathlib, yaml, json, os, sys
+          p = pathlib.Path("cloudformation/grafana-workspace.yaml")
+          tmpl = p.read_text()
+          bucket = os.environ["ARTIFACTS_BUCKET"]
+          key = f"grafana-osp/{os.environ['GITHUB_SHA']}/grafana_custom_resource.zip"
+          # Swap the inline ZipFile stub for S3-hosted real code.
+          needle = "Code:"
+          block = (
+              "Code:\n"
+              f"        S3Bucket: {bucket}\n"
+              f"        S3Key: {key}\n"
+          )
+          # Replace only the first Code: under CustomResourceFunction.
+          out, count = [], 0
+          lines = tmpl.splitlines(keepends=True)
+          i = 0
+          while i < len(lines):
+              line = lines[i]
+              if count == 0 and "CustomResourceFunction:" in line:
+                  out.append(line); i += 1
+                  while i < len(lines) and "Code:" not in lines[i]:
+                      out.append(lines[i]); i += 1
+                  if i < len(lines):
+                      indent = lines[i][: lines[i].index("Code:")]
+                      out.append(f"{indent}Code:\n")
+                      out.append(f"{indent}  S3Bucket: {bucket}\n")
+                      out.append(f"{indent}  S3Key: {key}\n")
+                      i += 1
+                      # Skip existing Code: block (ZipFile: | and following indented lines).
+                      base = len(indent) + 2
+                      while i < len(lines):
+                          lead = len(lines[i]) - len(lines[i].lstrip(" "))
+                          if lines[i].strip() == "" or lead >= base:
+                              i += 1
+                              continue
+                          break
+                      count = 1
+              else:
+                  out.append(line); i += 1
+          p.write_text("".join(out))
+          PY
+
+      - name: Deploy grafana stack
+        run: |
+          aws cloudformation deploy \
+            --stack-name osp-grafana \
+            --template-file cloudformation/grafana-workspace.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              WorkspaceName=${{ steps.params.outputs.workspace_name }} \
+              GrafanaVersion=${{ steps.params.outputs.grafana_version }} \
+              AdminGroupId=${{ steps.params.outputs.admin_group_id }} \
+              PluginsToInstall=${{ steps.params.outputs.plugins }} \
+              SnsTopicArn=${{ steps.obs.outputs.sns_topic_arn }}
+
+      - name: Outputs
+        run: |
+          aws cloudformation describe-stacks --stack-name osp-grafana \
+            --query "Stacks[0].Outputs" --output table

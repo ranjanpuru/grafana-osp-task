@@ -1,0 +1,18 @@
+# Root routing policy. All alerts hit sns-alerts by default; severity=ticket
+# breaks out to a slower cadence.
+
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: sns-alerts
+    group_by: ["alertname", "service"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: sns-alerts
+        matchers:
+          - severity = ticket
+        group_wait: 5m
+        group_interval: 30m
+        repeat_interval: 12h

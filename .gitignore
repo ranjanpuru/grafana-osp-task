@@ -1,0 +1,12 @@
+build/
+*.zip
+*.pyc
+__pycache__/
+.venv/
+.env
+.idea/
+.vscode/
+.DS_Store
+*.swp
+packaged.yaml
+params.json

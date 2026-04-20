@@ -1,0 +1,143 @@
+# Alert rules. Pushed via /api/v1/provisioning/alert-rules.
+# Keeping the YAML flat rather than using the full alertmanager "groups"
+# schema because the provisioning API takes one rule per POST.
+
+apiVersion: 1
+folder: OSP
+groups:
+  - name: osp-slo
+    interval: 1m
+    rules:
+
+      - uid: osp-latency-p95
+        title: Checkout p95 latency high
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: "${DS_CLOUDWATCH}"
+            model:
+              datasource: { type: cloudwatch, uid: "${DS_CLOUDWATCH}" }
+              namespace: osp/Demo
+              metricName: RequestLatencyMs
+              dimensions: { Service: checkout }
+              statistic: p95
+              region: ${AWS_REGION}
+              period: "60"
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [300] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+              refId: C
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "checkout p95 > 300ms for 2m"
+          description: "p95 latency on checkout has been above 300ms for >=2m. Check recent deploys and downstream (DB / auth)."
+          runbook_url: "https://wiki/runbooks/checkout-latency"
+        labels:
+          severity: page
+          service: checkout
+          slo: latency
+
+      - uid: osp-error-rate
+        title: Service error rate > 2%
+        condition: C
+        data:
+          - refId: errors
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: "${DS_CLOUDWATCH}"
+            model:
+              datasource: { type: cloudwatch, uid: "${DS_CLOUDWATCH}" }
+              namespace: osp/Demo
+              metricName: ErrorCount
+              statistic: Sum
+              region: ${AWS_REGION}
+              period: "60"
+              refId: errors
+          - refId: requests
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: "${DS_CLOUDWATCH}"
+            model:
+              datasource: { type: cloudwatch, uid: "${DS_CLOUDWATCH}" }
+              namespace: osp/Demo
+              metricName: RequestCount
+              statistic: Sum
+              region: ${AWS_REGION}
+              period: "60"
+              refId: requests
+          - refId: rate
+            datasourceUid: __expr__
+            model:
+              type: math
+              expression: "100 * $errors / $requests"
+              refId: rate
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: rate
+              conditions:
+                - evaluator: { type: gt, params: [2] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+              refId: C
+        noDataState: OK
+        execErrState: Error
+        for: 3m
+        annotations:
+          summary: "Error rate > 2% for 3m"
+          description: "Overall error rate across demo services crossed 2%. Drill down by service on the OSP dashboard."
+          runbook_url: "https://wiki/runbooks/error-rate"
+        labels:
+          severity: page
+          slo: availability
+
+      - uid: osp-workload-stale
+        title: Workload lambda stopped publishing metrics
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: "${DS_CLOUDWATCH}"
+            model:
+              datasource: { type: cloudwatch, uid: "${DS_CLOUDWATCH}" }
+              namespace: osp/Demo
+              metricName: RequestCount
+              statistic: Sum
+              region: ${AWS_REGION}
+              period: "300"
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+              refId: C
+        noDataState: Alerting
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "No demo metrics for 10m"
+          description: "osp-workload lambda is not publishing. Check EventBridge schedule + lambda errors."
+          runbook_url: "https://wiki/runbooks/workload-stale"
+        labels:
+          severity: ticket
+          service: workload

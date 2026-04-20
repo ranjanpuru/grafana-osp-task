@@ -1,0 +1,194 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Demo workload + CloudWatch dashboard + SNS topic for Grafana alerts.
+
+Parameters:
+  Namespace:
+    Type: String
+    Default: osp
+    Description: Prefix for resource names.
+
+  AlertsEmail:
+    Type: String
+    Default: ""
+    Description: Optional email to subscribe to the SNS topic. Leave blank to skip.
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref AlertsEmail, ""]]
+
+Resources:
+
+  # SNS topic - Grafana Alerting contact point target.
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${Namespace}-grafana-alerts"
+      DisplayName: OSP Grafana Alerts
+
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertsEmail
+
+  # Demo workload: 1-min scheduled lambda emits fake service metrics so the
+  # dashboard + alert rules actually have data to render against.
+  WorkloadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Namespace}-workload-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: put-metrics
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: !Sub "${Namespace}/Demo"
+
+  WorkloadFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${Namespace}-workload"
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt WorkloadRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          METRIC_NAMESPACE: !Sub "${Namespace}/Demo"
+      Code:
+        ZipFile: |
+          import os, random, boto3
+
+          cw = boto3.client("cloudwatch")
+          NS = os.environ["METRIC_NAMESPACE"]
+          SERVICES = ["checkout", "catalog", "search"]
+
+          def handler(event, context):
+              data = []
+              for svc in SERVICES:
+                  # checkout gets higher baseline so latency alert can fire.
+                  mean = 280 if svc == "checkout" else 120
+                  latency = max(5, random.gauss(mean, 60))
+                  errors = random.choices([0, 0, 0, 1, 3], k=1)[0]
+                  reqs = random.randint(50, 500)
+                  d = [{"Name": "Service", "Value": svc}]
+                  data.extend([
+                      {"MetricName": "RequestLatencyMs", "Dimensions": d, "Value": latency, "Unit": "Milliseconds"},
+                      {"MetricName": "RequestCount",     "Dimensions": d, "Value": reqs,    "Unit": "Count"},
+                      {"MetricName": "ErrorCount",       "Dimensions": d, "Value": errors,  "Unit": "Count"},
+                  ])
+              cw.put_metric_data(Namespace=NS, MetricData=data)
+              return {"published": len(data)}
+
+  WorkloadSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${Namespace}-workload-schedule"
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt WorkloadFunction.Arn
+          Id: workload
+
+  WorkloadScheduleInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref WorkloadFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt WorkloadSchedule.Arn
+
+  # CloudWatch-native dashboard. Same metrics are rendered from Grafana too.
+  CloudWatchDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${Namespace}-demo"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric", "x": 0, "y": 0, "width": 12, "height": 6,
+              "properties": {
+                "title": "Request latency (p50/p95/p99) by service",
+                "region": "${AWS::Region}",
+                "stat": "p95",
+                "period": 60,
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  [ "${Namespace}/Demo", "RequestLatencyMs", "Service", "checkout", { "stat": "p50" } ],
+                  [ "...", { "stat": "p95" } ],
+                  [ "...", { "stat": "p99" } ],
+                  [ "${Namespace}/Demo", "RequestLatencyMs", "Service", "catalog", { "stat": "p95" } ],
+                  [ "${Namespace}/Demo", "RequestLatencyMs", "Service", "search",  { "stat": "p95" } ]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 12, "y": 0, "width": 12, "height": 6,
+              "properties": {
+                "title": "Error rate (%) by service",
+                "region": "${AWS::Region}",
+                "period": 60,
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  [ { "expression": "100 * errors_checkout / reqs_checkout", "label": "checkout", "id": "e1" } ],
+                  [ { "expression": "100 * errors_catalog  / reqs_catalog",  "label": "catalog",  "id": "e2" } ],
+                  [ { "expression": "100 * errors_search   / reqs_search",   "label": "search",   "id": "e3" } ],
+                  [ "${Namespace}/Demo", "ErrorCount",   "Service", "checkout", { "id": "errors_checkout", "visible": false } ],
+                  [ "${Namespace}/Demo", "RequestCount", "Service", "checkout", { "id": "reqs_checkout",   "visible": false } ],
+                  [ "${Namespace}/Demo", "ErrorCount",   "Service", "catalog",  { "id": "errors_catalog",  "visible": false } ],
+                  [ "${Namespace}/Demo", "RequestCount", "Service", "catalog",  { "id": "reqs_catalog",    "visible": false } ],
+                  [ "${Namespace}/Demo", "ErrorCount",   "Service", "search",   { "id": "errors_search",   "visible": false } ],
+                  [ "${Namespace}/Demo", "RequestCount", "Service", "search",   { "id": "reqs_search",     "visible": false } ]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 0, "y": 6, "width": 24, "height": 6,
+              "properties": {
+                "title": "Request volume by service",
+                "region": "${AWS::Region}",
+                "period": 60,
+                "stat": "Sum",
+                "view": "timeSeries",
+                "stacked": true,
+                "metrics": [
+                  [ "${Namespace}/Demo", "RequestCount", "Service", "checkout" ],
+                  [ "${Namespace}/Demo", "RequestCount", "Service", "catalog" ],
+                  [ "${Namespace}/Demo", "RequestCount", "Service", "search" ]
+                ]
+              }
+            }
+          ]
+        }
+
+Outputs:
+  SnsTopicArn:
+    Value: !Ref AlertsTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-SnsTopicArn"
+
+  MetricNamespace:
+    Value: !Sub "${Namespace}/Demo"
+    Export:
+      Name: !Sub "${AWS::StackName}-MetricNamespace"
+
+  CloudWatchDashboardName:
+    Value: !Ref CloudWatchDashboard

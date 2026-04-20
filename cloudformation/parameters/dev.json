@@ -1,0 +1,13 @@
+{
+  "_comment": "Shared parameters for both stacks. Override per-env by copying to prod.json etc.",
+  "observability": {
+    "Namespace": "osp",
+    "AlertsEmail": "ranjanpuru@gmail.com"
+  },
+  "grafana": {
+    "WorkspaceName": "osp-grafana",
+    "GrafanaVersion": "10.4",
+    "AdminGroupId": "7488f428-40a1-70cf-453a-fb0701232283",
+    "PluginsToInstall": "grafana-clock-panel,grafana-polystat-panel,marcusolsson-json-datasource"
+  }
+}

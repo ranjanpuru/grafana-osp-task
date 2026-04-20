@@ -1,0 +1,21 @@
+# Grafana Alerting contact points.
+# Applied via the provisioning API (/api/v1/provisioning/contact-points).
+# The SNS contact point uses the workspace IAM role (SigV4) so no static
+# AWS creds live in Grafana.
+
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: sns-alerts
+    receivers:
+      - uid: sns-alerts-primary
+        type: sns
+        settings:
+          topic: ${SNS_TOPIC_ARN}
+          authProvider: default
+          messageFormat: json
+        # Renders via the shared templates below. Keeps alert bodies
+        # consistent across Slack / email subscribers on the SNS topic.
+        message: '{{ template "osp.sns.body" . }}'
+        subject: '{{ template "osp.sns.subject" . }}'
+        disableResolveMessage: false

@@ -1,0 +1,186 @@
+{
+  "uid": "osp-observability",
+  "title": "OSP / Demo services (CloudWatch)",
+  "tags": ["osp", "cloudwatch", "demo"],
+  "timezone": "",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+        "query": {
+          "queryType": "dimensionValues",
+          "region": "$region",
+          "namespace": "osp/Demo",
+          "metricName": "RequestLatencyMs",
+          "dimensionKey": "Service",
+          "dimensionFilters": {}
+        },
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "region",
+        "type": "custom",
+        "query": "us-east-1,us-west-2,eu-west-1",
+        "current": { "text": "us-east-1", "value": "us-east-1" },
+        "includeAll": false
+      },
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "cloudwatch",
+        "current": { "text": "CloudWatch", "value": "CloudWatch" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "p95 latency by service (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 300 },
+              { "color": "red", "value": 500 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "namespace": "osp/Demo",
+          "metricName": "RequestLatencyMs",
+          "dimensions": { "Service": "$service" },
+          "statistic": "p95",
+          "region": "$region",
+          "period": "60",
+          "label": "{{Service}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Error rate % (errors / requests)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "refId": "errors",
+          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "namespace": "osp/Demo",
+          "metricName": "ErrorCount",
+          "dimensions": { "Service": "$service" },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "hide": true
+        },
+        {
+          "refId": "requests",
+          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": { "Service": "$service" },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "hide": true
+        },
+        {
+          "refId": "rate",
+          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "expression": "100 * errors / requests",
+          "region": "$region",
+          "label": "{{Service}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Request volume (last 5m, all services)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": { "Service": "$service" },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Request volume by service",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 8 },
+      "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "stacking": { "mode": "normal" } } }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${datasource}" },
+          "namespace": "osp/Demo",
+          "metricName": "RequestCount",
+          "dimensions": { "Service": "$service" },
+          "statistic": "Sum",
+          "region": "$region",
+          "period": "60",
+          "label": "{{Service}}"
+        }
+      ]
+    }
+  ]
+}

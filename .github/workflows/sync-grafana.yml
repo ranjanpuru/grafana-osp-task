@@ -1,0 +1,61 @@
+name: sync-grafana
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "grafana/**"
+      - "scripts/sync_grafana.py"
+      - ".github/workflows/sync-grafana.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: grafana-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install --quiet boto3 pyyaml
+
+      - name: Configure AWS creds (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve stack outputs
+        id: outputs
+        run: |
+          set -euo pipefail
+          ws=$(aws cloudformation describe-stacks --stack-name osp-grafana \
+            --query "Stacks[0].Outputs[?OutputKey=='WorkspaceId'].OutputValue" --output text)
+          ep=$(aws cloudformation describe-stacks --stack-name osp-grafana \
+            --query "Stacks[0].Outputs[?OutputKey=='WorkspaceEndpoint'].OutputValue" --output text)
+          sns=$(aws cloudformation describe-stacks --stack-name osp-observability \
+            --query "Stacks[0].Outputs[?OutputKey=='SnsTopicArn'].OutputValue" --output text)
+          echo "workspace_id=$ws" >> "$GITHUB_OUTPUT"
+          echo "endpoint=$ep" >> "$GITHUB_OUTPUT"
+          echo "sns_topic_arn=$sns" >> "$GITHUB_OUTPUT"
+
+      - name: Sync
+        env:
+          GRAFANA_WORKSPACE_ID: ${{ steps.outputs.workspace_id }}
+          GRAFANA_ENDPOINT: ${{ steps.outputs.endpoint }}
+          SNS_TOPIC_ARN: ${{ steps.outputs.sns_topic_arn }}
+        run: python scripts/sync_grafana.py

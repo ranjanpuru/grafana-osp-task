@@ -1,0 +1,38 @@
+# Notification templates (Go template syntax, same engine as Alertmanager).
+# Pushed via /api/v1/provisioning/templates.
+# NOTE: the Grafana/AM template engine does NOT ship sprig, so stick to
+# Go stdlib + Alertmanager helpers (toUpper, toLower, title, join, match,
+# reReplaceAll, stringSlice). No `default`.
+
+apiVersion: 1
+templates:
+  - orgId: 1
+    name: osp.sns.subject
+    template: |
+      {{ define "osp.sns.subject" -}}
+      [{{ .Status | toUpper }}:{{ .Alerts.Firing | len }}] {{ .GroupLabels.alertname }}{{ with .CommonLabels.service }} ({{ . }}){{ end }}
+      {{- end }}
+
+  - orgId: 1
+    name: osp.sns.body
+    template: |
+      {{ define "osp.sns.body" -}}
+      {{ .Status | toUpper }} - {{ .GroupLabels.alertname }}
+      Severity : {{ with .CommonLabels.severity }}{{ . }}{{ else }}unknown{{ end }}
+      Service  : {{ with .CommonLabels.service }}{{ . }}{{ else }}n/a{{ end }}
+      Fired    : {{ .Alerts.Firing | len }}
+      Resolved : {{ .Alerts.Resolved | len }}
+
+      {{ range .Alerts -}}
+      -----
+      Summary    : {{ .Annotations.summary }}
+      Description: {{ .Annotations.description }}
+      Runbook    : {{ .Annotations.runbook_url }}
+      Started    : {{ .StartsAt.Format "2006-01-02T15:04:05Z07:00" }}
+      {{ if eq .Status "resolved" -}}
+      Resolved   : {{ .EndsAt.Format "2006-01-02T15:04:05Z07:00" }}
+      {{- end }}
+      Labels     : {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+      Dashboard  : {{ .GeneratorURL }}
+      {{ end }}
+      {{- end }}
