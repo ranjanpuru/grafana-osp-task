@@ -55,7 +55,7 @@ jobs:
 
       - name: Sync
         env:
-          GRAFANA_WORKSPACE_ID: ${{ steps.outputs.workspace_id }}
-          GRAFANA_ENDPOINT: ${{ steps.outputs.endpoint }}
-          SNS_TOPIC_ARN: ${{ steps.outputs.sns_topic_arn }}
+          GRAFANA_WORKSPACE_ID: ${{ steps.outputs.outputs.workspace_id }}
+          GRAFANA_ENDPOINT: ${{ steps.outputs.outputs.endpoint }}
+          SNS_TOPIC_ARN: ${{ steps.outputs.outputs.sns_topic_arn }}
         run: python scripts/sync_grafana.py
