@@ -95,12 +95,3 @@ make sync     # pushes dashboards/alerts from grafana/
   this gets wired to Slack later, put a filter lambda in between or the
   channel will get noisy.
 
-## Teardown
-
-```bash
-AWS_PROFILE=my-sandbox ./scripts/nuke.sh
-```
-
-Deletes both stacks, the Lambda log groups CFN doesn't own, the artifacts
-bucket, the IdC group + user + instance, and the AWS Organization if it's a
-single-account one. Safe to re-run.
