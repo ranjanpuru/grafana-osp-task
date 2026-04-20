@@ -31,8 +31,24 @@ Parameters:
       SNS topic ARN the workspace service role must be allowed to Publish to
       (exported by the observability stack).
 
+  CustomResourceBucket:
+    Type: String
+    Default: ""
+    Description: >
+      S3 bucket containing the custom resource Lambda zip. Leave blank to use
+      the inline stub (template will not actually work; set this for a real
+      deploy).
+
+  CustomResourceKey:
+    Type: String
+    Default: ""
+    Description: S3 key of the Lambda zip under CustomResourceBucket.
+
 Conditions:
   AssignAdminGroup: !Not [!Equals [!Ref AdminGroupId, ""]]
+  UseS3Code: !And
+    - !Not [!Equals [!Ref CustomResourceBucket, ""]]
+    - !Not [!Equals [!Ref CustomResourceKey, ""]]
 
 Resources:
 
@@ -118,13 +134,16 @@ Resources:
       Role: !GetAtt CustomResourceRole.Arn
       Timeout: 600
       MemorySize: 256
-      # Makefile / deploy-infra workflow patches this to S3Bucket/S3Key at
-      # deploy time. Keeping a stub inline so `aws cloudformation validate`
-      # works standalone.
-      Code:
-        ZipFile: |
-          def handler(event, context):
-              raise RuntimeError("stub - deploy via make package or CI")
+      # Real code comes from S3 when the bucket/key params are supplied (the
+      # GH Actions / make flow does this). Falls back to an inline stub so
+      # `aws cloudformation validate-template` works standalone.
+      Code: !If
+        - UseS3Code
+        - S3Bucket: !Ref CustomResourceBucket
+          S3Key:    !Ref CustomResourceKey
+        - ZipFile: |
+            def handler(event, context):
+                raise RuntimeError("stub - set CustomResourceBucket/Key params")
 
   # Runs on every stack update (Plugins/AdminGroupId change triggers replace).
   GrafanaBootstrap:

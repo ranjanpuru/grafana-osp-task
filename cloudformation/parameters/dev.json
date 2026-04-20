@@ -1,13 +1,11 @@
 {
-  "_comment": "Shared parameters for both stacks. Override per-env by copying to prod.json etc.",
+  "_comment": "Non-sensitive defaults. Account-specific values (IdC group id, alerts email) come from GH Actions variables/secrets at deploy time, not from this file.",
   "observability": {
-    "Namespace": "osp",
-    "AlertsEmail": "ranjanpuru@gmail.com"
+    "Namespace": "osp"
   },
   "grafana": {
     "WorkspaceName": "osp-grafana",
     "GrafanaVersion": "10.4",
-    "AdminGroupId": "7488f428-40a1-70cf-453a-fb0701232283",
     "PluginsToInstall": "grafana-clock-panel,grafana-polystat-panel,marcusolsson-json-datasource"
   }
 }
