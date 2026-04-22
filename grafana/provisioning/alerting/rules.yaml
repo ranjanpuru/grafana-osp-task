@@ -32,10 +32,7 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: gt, params: [300] }
-                  operator: { type: and }
-                  query: { params: [C] }
                   reducer: { type: last, params: [] }
-                  type: query
               refId: C
         noDataState: OK
         execErrState: Error
@@ -88,10 +85,7 @@ groups:
               expression: rate
               conditions:
                 - evaluator: { type: gt, params: [2] }
-                  operator: { type: and }
-                  query: { params: [C] }
                   reducer: { type: last, params: [] }
-                  type: query
               refId: C
         noDataState: OK
         execErrState: Error
@@ -126,10 +120,7 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: lt, params: [1] }
-                  operator: { type: and }
-                  query: { params: [C] }
                   reducer: { type: last, params: [] }
-                  type: query
               refId: C
         noDataState: Alerting
         execErrState: Error
