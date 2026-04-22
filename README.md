@@ -107,6 +107,17 @@ make sync     # pushes dashboards/alerts from grafana/
 
 ## Sharp edges worth flagging
 
+- **AMG ships new workspaces with unified alerting OFF.** `CreateWorkspace`
+  via CFN sets `unifiedAlerting.enabled: false` by default. Provisioned
+  ngalert rules show up in the UI, appear healthy, and never evaluate
+  (`lastEvaluation: 0001-01-01T00:00:00Z`). Fix: `UpdateWorkspaceConfiguration`
+  to flip the flag, which restarts the workspace. The custom resource does
+  this before anything else on create. If you hit this on an already-deployed
+  workspace, run:
+  ```
+  aws grafana update-workspace-configuration --workspace-id <id> \
+    --configuration '{"unifiedAlerting":{"enabled":true},"plugins":{"pluginAdminEnabled":true}}'
+  ```
 - **IdC managed-app race.** After the workspace goes ACTIVE, AMG takes a few
   seconds to register a managed application in IAM Identity Center.
   `grafana:UpdatePermissions` 403s with `Unable to update users in managed

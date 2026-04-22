@@ -138,6 +138,35 @@ def _wait_active(workspace_id, attempts=30, delay=10):
     raise TimeoutError(f"workspace {workspace_id} never reached ACTIVE")
 
 
+def _ensure_unified_alerting(workspace_id):
+    """
+    AMG workspaces default unifiedAlerting.enabled to False. Provisioned
+    ngalert rules never get scheduled until this flips, so turn it on
+    before any other work. No-op if already true. Triggers a workspace
+    restart -> wait for ACTIVE before returning.
+    """
+    cfg_str = grafana.describe_workspace_configuration(workspaceId=workspace_id)["configuration"]
+    cfg = json.loads(cfg_str) if cfg_str else {}
+    if cfg.get("unifiedAlerting", {}).get("enabled") is True:
+        log.info("unifiedAlerting already on")
+        return
+    cfg.setdefault("plugins", {})["pluginAdminEnabled"] = True  # keep plugin install usable
+    cfg["unifiedAlerting"] = {"enabled": True}
+    log.info("flipping unifiedAlerting on; workspace will restart")
+    grafana.update_workspace_configuration(
+        workspaceId=workspace_id,
+        configuration=json.dumps(cfg),
+    )
+    # Restart usually takes 2-4 min. Poll until ACTIVE again.
+    for _ in range(60):
+        time.sleep(10)
+        st = grafana.describe_workspace(workspaceId=workspace_id)["workspace"]["status"]
+        if st == "ACTIVE":
+            log.info("workspace ACTIVE after config update")
+            return
+    raise TimeoutError("workspace did not recover after config update")
+
+
 def handler(event, context):
     log.info("event: %s", json.dumps({k: v for k, v in event.items() if k != "ResponseURL"}))
     rtype = event["RequestType"]
@@ -155,6 +184,9 @@ def handler(event, context):
         admin_group_id = props.get("AdminGroupId") or ""
 
         _wait_active(workspace_id)
+        # Must run BEFORE minting the SA token: the config update restarts
+        # the workspace, invalidating any in-flight tokens.
+        _ensure_unified_alerting(workspace_id)
 
         sa_id, token = _mint_token(workspace_id)
         # AMG workspace is "ACTIVE" a few seconds before the Grafana process

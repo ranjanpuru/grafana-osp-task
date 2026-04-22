@@ -123,6 +123,8 @@ Resources:
                   - grafana:UpdatePermissions
                   - grafana:DescribeWorkspace
                   - grafana:DescribeWorkspaceAuthentication
+                  - grafana:DescribeWorkspaceConfiguration
+                  - grafana:UpdateWorkspaceConfiguration
                 Resource: !Sub "arn:aws:grafana:${AWS::Region}:${AWS::AccountId}:/workspaces/${GrafanaWorkspace}"
 
   CustomResourceFunction:
