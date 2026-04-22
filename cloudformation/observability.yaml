@@ -81,9 +81,11 @@ Resources:
           def handler(event, context):
               data = []
               for svc in SERVICES:
-                  # checkout gets higher baseline so latency alert can fire.
-                  mean = 280 if svc == "checkout" else 120
-                  latency = max(5, random.gauss(mean, 60))
+                  # checkout baseline is tuned to trip the p95 > 300ms alert
+                  # reliably so the alert -> SNS -> email pipeline stays
+                  # demonstrably alive. Drop to ~180 for a quieter service.
+                  mean = 450 if svc == "checkout" else 120
+                  latency = max(5, random.gauss(mean, 80))
                   errors = random.choices([0, 0, 0, 1, 3], k=1)[0]
                   reqs = random.randint(50, 500)
                   d = [{"Name": "Service", "Value": svc}]
